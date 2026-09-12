@@ -43,7 +43,7 @@ Claude 판정은 다음 의미를 갖는다.
 
 ## 인증과 권한
 
-GitHub Actions는 저장소 Secret에 등록된 인증값을 사용한다. Claude Pro/Max의 CI 토큰은 `CLAUDE_CODE_OAUTH_TOKEN`, Anthropic API 키는 `ANTHROPIC_API_KEY`라는 이름을 사용한다. 실제 비밀값은 파일, 로그, PR 본문에 기록하지 않는다.
+GitHub Actions는 Claude Pro/Max 구독에서 `claude setup-token`으로 발급한 OAuth 토큰을 사용한다. 토큰은 저장소 Secret `CLAUDE_CODE_OAUTH_TOKEN`으로 등록한다. Anthropic API 키와 API 과금 계정은 사용하지 않으며, 실제 토큰은 파일, 로그, PR 본문에 기록하지 않는다.
 
 Workflow 권한은 `contents: read`와 리뷰 결과를 표시하는 데 필요한 최소 Pull Request 권한으로 제한한다. Claude에는 소스 편집 도구를 제공하지 않는다. 외부 fork에서 만든 PR에는 저장소 Secret이 제공되지 않으므로 인증이 없을 때 검사를 건너뛰지 않고 실패 처리한다.
 
@@ -55,7 +55,7 @@ Claude는 GitHub의 사람 승인 리뷰를 대신하지 않는다. CI job의 �
 
 ## 오류 처리
 
-- Claude 인증값이 없으면 설정 방법을 안내하고 job을 실패시킨다.
+- `CLAUDE_CODE_OAUTH_TOKEN`이 없으면 `claude setup-token`과 GitHub Secret 등록 방법을 안내하고 job을 실패시킨다.
 - Claude 호출이 제한 시간, 사용량 제한, 네트워크 문제로 끝나면 fail closed로 처리해 병합을 허용하지 않는다.
 - 테스트가 실패하면 Claude 판정과 관계없이 CI를 실패시킨다.
 - 새 커밋이 push되면 이전 성공 판정을 폐기하고 전체 검증을 다시 실행한다.
@@ -83,5 +83,5 @@ Claude는 GitHub의 사람 승인 리뷰를 대신하지 않는다. CI job의 �
 - Claude는 로컬 및 CI 검토에서 소스 파일을 수정할 수 없다.
 - Pull Request에서 실제 테스트가 실행된다.
 - Claude의 `BLOCK` 판정과 호출 오류가 CI 실패로 이어진다.
-- GitHub Secret 등록과 required status check 설정 방법이 문서화된다.
+- GitHub OAuth Secret 등록과 required status check 설정 방법이 문서화된다.
 - GitHub 저장소가 생성된 뒤 required check를 켜면 실패한 검증을 우회해 병합할 수 없다.
