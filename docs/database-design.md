@@ -1,5 +1,43 @@
 # PetEver 테이블 설계 v1
 
+## Supabase 적용 결과 — 2026-09-15 (shelter_id nullable, 실행 대기)
+
+`docs/superpowers/specs/2026-09-15-animal-listing-types-design.md` 2절 결정에 따라
+분실 신고 동물은 가짜 placeholder 보호소 대신 `shelter_id NULL`로 표현하도록
+코드를 바꿨다. 이 세션에는 Supabase 접속 정보(`DB_URL`/`DB_PASSWORD` 등)가 없어
+아래 DDL을 실제로 실행하지 못했다 — **이미 운영 중인 스키마를 바꾸는 작업이므로
+Supabase 자격 증명을 가진 사람이 SQL Editor에서 직접 확인 후 실행해야 한다.**
+
+**배포 순서 — 반드시 지킨다: 아래 DDL/정리 SQL을 먼저 실행하고, 그 다음 이 커밋의
+백엔드 코드를 배포한다.** 순서가 바뀌면(코드가 먼저 배포되면) 새 코드는 분실 신고마다
+`shelter_id = NULL`을 쓰려 하는데 컬럼이 아직 NOT NULL이라 매 건 INSERT가 거부되고,
+`sync_runs`에는 원인을 알 수 없는 `"One or more records could not be imported"`만
+남아 분실 신고 수집이 조용히 전멸한다.
+
+1. **사전 확인** (정리 대상이 있는지 파악):
+   ```sql
+   SELECT count(*) FROM animal_images WHERE source = 'LOSS_INFO';
+   SELECT a.id FROM animals a JOIN shelters s ON s.id = a.shelter_id
+    WHERE s.external_source = 'SYSTEM' AND s.external_id = 'LOSS_INFO_PLACEHOLDER';
+   ```
+2. **DDL과 정리를 하나의 트랜잭션으로 실행**:
+   ```sql
+   BEGIN;
+   ALTER TABLE animals ALTER COLUMN shelter_id DROP NOT NULL;
+   UPDATE animals a SET shelter_id = NULL FROM shelters s
+     WHERE a.shelter_id = s.id AND s.external_source = 'SYSTEM' AND s.external_id = 'LOSS_INFO_PLACEHOLDER';
+   -- animal_images.source는 이제 "누가 올렸나"만 구분한다(5절 참고) — 기존 분실 신고
+   -- 사진 행을 PUBLIC_API로 정리한다. animal_images.source에 CHECK 제약이 걸려 있다면
+   -- 이 UPDATE가 거부되는지 여기서 확인한다(걸려 있었다면 애초에 LOSS_INFO 값의 INSERT가
+   -- 거부됐을 것이므로 정리할 행이 없을 수 있다).
+   UPDATE animal_images SET source = 'PUBLIC_API' WHERE source = 'LOSS_INFO';
+   DELETE FROM shelters WHERE external_source = 'SYSTEM' AND external_id = 'LOSS_INFO_PLACEHOLDER';
+   COMMIT;
+   ```
+3. 위 트랜잭션 실행 후에만 코드를 배포한다.
+
+실행 후 이 문단은 12개 테이블 최초 적용 기록처럼 "적용 완료"로 갱신한다.
+
 ## Supabase 적용 결과 — 2026-09-12
 
 사용자 요청에 따라 기존 Supabase `petever` 프로젝트(`jraihqgetttetqosvlvo`)의 public 스키마에 핵심 12개 테이블을 생성했다. 아래 본문의 MySQL 자료형은 최초 논리 설계이며, 현재 실제 DB 엔진은 PostgreSQL이다.
@@ -95,7 +133,7 @@ UNIQUE(user_id, shelter_id). 한 회원이 여러 보호소에 소속될 수 있
 | 컬럼 | 타입 | 의미 |
 |---|---|---|
 | id | BIGINT PK | 찜·상담에서 참조하는 고정 식별자 |
-| shelter_id | BIGINT FK → shelters | 현재 보호소 |
+| shelter_id | BIGINT FK → shelters, NULL 허용 | 현재 보호소; 분실 신고처럼 보호소가 없는 리스팅은 NULL |
 | origin | VARCHAR(20) | PUBLIC_API / SHELTER; 최초 등록 경로 |
 | created_by | BIGINT FK → users, NULL | 직접 등록한 담당자 |
 | name | VARCHAR(100), NULL | 담당자가 지은 이름 |
@@ -115,6 +153,10 @@ UNIQUE(user_id, shelter_id). 한 회원이 여러 보호소에 소속될 수 있
 | consultation_enabled | BOOLEAN | 담당자가 설정한 상담 접수 여부; 기본 false |
 
 origin과 status_authority를 분리한다. 직접 등록한 동물을 공공 기록과 연결하더라도 최초 등록 경로는 바뀌지 않는다. 공공 연결 후 종류·품종·성별·발견 정보 등 기본 정보는 공공 기록으로 갱신하고, name·description·visibility·consultation_enabled와 담당자 사진은 보존한다. 연결 시 이 규칙을 담당자에게 알린다.
+
+`shelter_id`가 NULL인 동물은 보호소가 없는 리스팅(현재는 분실 신고)이다. 상담 신청 조건(아래 문단)이 원래도 `shelters` JOIN 기반이므로 이런 행은 별도 예외 처리 없이 자연히 상담 대상에서 빠진다.
+
+분실 신고는 정밀 위치 정보가 없어 `found_place`에 지자체명(`orgNm`)을 넣는다 — 구조동물 공고의 `found_place`(정밀 발견 장소)와 정밀도가 다르므로 화면에서 혼동하지 않게 표시한다.
 
 보호 상태는 status_authority가 지정한 주체만 갱신한다. API 동물은 PUBLIC_API, 직접 등록 동물은 SHELTER가 기본이다. 확인된 담당자가 관리 권한을 인수하면 SHELTER로 변경해 입양 완료가 오래된 API 상태로 되돌아가지 않게 한다. 외부 상태는 별도 기록에 계속 보존한다.
 
@@ -136,6 +178,19 @@ origin과 status_authority를 분리한다. 직접 등록한 동물을 공공 �
 | last_seen_at | DATETIME(6) | 마지막 정상 조회 시각 |
 | last_synced_at | DATETIME(6) | 마지막 반영 시각 |
 
+`source` 허용값:
+
+| 값 | 의미 | 비고 |
+|---|---|---|
+| ANIMAL_API | 구조동물(유기동물) 공고 조회 서비스 — 보호소가 보호 중, 입양 상담 가능 | 이름은 도입 당시 "공공 API 전체"를 뜻했으나 지금은 이 소스 하나만 가리킨다. 운영 데이터 마이그레이션 비용 대비 이점이 작아 개명은 보류했다 |
+| LOSS_INFO | 분실 신고 조회 서비스 — 주인이 신고한 실종 반려동물, 입양 상담 불가 | 고유 식별자·보호소·공고 기간 없음; 식별자는 SHA-256 근사 해시(아래) |
+
+목록/상세 API 응답의 `listingType`은 이 컬럼 값으로 런타임에 추론한다(`LOSS_INFO`면 `LOST_REPORT`, 아니면 `SHELTER_ANIMAL`) — 새 소스를 추가하면 `AnimalController`와 `AnimalRepository.findPublic`의 이 매핑도 함께 갱신해야 한다.
+
+이 컬럼은 응답 페이로드의 모양(`desertionNo` 유무)으로 결정되는 반면, `sync_runs.source`는 어떤 클라이언트로 호출했는지로 결정된다 — 정상 동작 시 둘은 항상 일치하지만, 엔드포인트가 잘못 설정돼 한 소스의 URL이 다른 소스의 응답을 반환하면 두 값이 어긋날 수 있다(그 경우 여전히 `animal_external_records.source`가 실제 데이터 모양을 따르므로 표시상 오류는 없다).
+
+분실 신고는 공식 접수번호 같은 안정적 식별자 필드가 없어(이번 세션에는 실제 API 응답을 확인할 키가 없어 재확인하지 못했다) `external_id`를 신고일·지자체·품종·성별·색상 해시로 근사한다. 같은 날 같은 지역에 같은 품종·성별·색상 분실 신고가 2건 이상이면 서로 다른 신고가 같은 식별자로 충돌할 수 있다 — 알려진 제약으로 남겨둔다.
+
 UNIQUE(source, external_id)로 중복 수집을 막는다. v1은 동물 하나당 외부 기록 하나를 허용한다. API 검색 결과에서 사라졌다는 이유로 동물을 삭제하거나 입양 완료 처리하지 않는다.
 
 직접 등록 동물 연결 시 식별번호로 기존 수집 기록을 찾는다. 이미 다른 animals에 연결돼 있으면 일반 연결을 거절하고 관리자 병합으로 처리한다. 병합은 직접 등록 동물 ID를 유지하고 상담·사진·찜 참조를 이동하며 중복 찜을 해소한 뒤 외부 기록을 연결하는 하나의 트랜잭션으로 수행한다. 서로 다른 보호소 소속이면 자동 병합하지 않는다.
@@ -152,7 +207,7 @@ UNIQUE(source, external_id)로 중복 수집을 막는다. v1은 동물 하나�
 | uploaded_by | BIGINT FK → users, NULL | 업로드 담당자 |
 | sort_order | INT | 표시 순서, 0 이상 |
 
-이미지 파일 자체는 DB에 저장하지 않는다. 정렬 순서와 id가 가장 앞선 사진을 대표 사진으로 사용한다. API 갱신 시 PUBLIC_API 사진만 동기화하며 담당자 사진은 유지한다.
+이미지 파일 자체는 DB에 저장하지 않는다. 정렬 순서와 id가 가장 앞선 사진을 대표 사진으로 사용한다. API 갱신 시 PUBLIC_API 사진만 동기화하며 담당자 사진은 유지한다. `source`는 "누가 올렸나"만 구분한다 — 구조동물 공고든 분실 신고든 공공 API로 들어온 사진은 모두 PUBLIC_API이며, 어떤 공공 API인지는 `animal_external_records.source`로만 구분한다.
 
 ## 7. animal_favorites — 관심 동물
 
