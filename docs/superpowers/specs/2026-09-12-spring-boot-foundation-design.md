@@ -1,4 +1,4 @@
-# PetEver Spring Boot 기반 설계
+# Petever Spring Boot 기반 설계
 
 ## 목표
 

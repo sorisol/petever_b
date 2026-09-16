@@ -1,0 +1,274 @@
+package com.petever.api.service;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import com.sun.net.httpserver.HttpServer;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+class AnimalImageCacheServiceTests {
+    private static final byte[] FAKE_JPEG = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 1, 2, 3, 4};
+    private static final byte[] FAKE_PNG = {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3};
+
+    // Tests must point fetchAndCache() at a local stub server, which is necessarily loopback --
+    // so they use the "allow all hosts" test constructor and exercise the real SSRF guard
+    // (isInternalAddress / the default constructor) separately below.
+    private static AnimalImageCacheService serviceAllowingLoopback(Path cacheDir) {
+        return new AnimalImageCacheService(cacheDir.toString(), address -> false);
+    }
+
+    @Test
+    void fetchAndCacheStoresBytesSoReadReturnsWithoutRefetching(@TempDir Path tempDir) throws Exception {
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var hits = new AtomicInteger();
+        server.createContext("/photo.jpg", exchange -> {
+            hits.incrementAndGet();
+            exchange.getResponseHeaders().add("Content-Type", "image/jpeg");
+            exchange.sendResponseHeaders(200, FAKE_JPEG.length);
+            try (var out = exchange.getResponseBody()) { out.write(FAKE_JPEG); }
+        });
+        server.start();
+        try {
+            var service = serviceAllowingLoopback(tempDir);
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/photo.jpg";
+
+            var fetched = service.fetchAndCache(1L, url);
+            assertArrayEquals(FAKE_JPEG, fetched.bytes());
+            assertEquals("image/jpeg", fetched.contentType());
+            assertEquals(1, hits.get());
+
+            var cached = service.read(1L, url);
+            assertTrue(cached.isPresent());
+            assertArrayEquals(FAKE_JPEG, cached.get().bytes());
+            assertEquals("image/jpeg", cached.get().contentType());
+            assertEquals(1, hits.get(), "reading from the disk cache must not call the external server again");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void cachesAnUnmappedContentTypeViaTheBinPlusMetaFallback(@TempDir Path tempDir) throws Exception {
+        // image/bmp has no entry in EXTENSION_BY_CONTENT_TYPE, so this exercises the ".bin" +
+        // ".meta" fallback path in writeCacheFile()/read() rather than the extension-mapped one.
+        byte[] bmp = {'B', 'M', 1, 2, 3};
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        var hits = new AtomicInteger();
+        server.createContext("/photo.bmp", exchange -> {
+            hits.incrementAndGet();
+            exchange.getResponseHeaders().add("Content-Type", "image/bmp");
+            exchange.sendResponseHeaders(200, bmp.length);
+            try (var out = exchange.getResponseBody()) { out.write(bmp); }
+        });
+        server.start();
+        try {
+            var service = serviceAllowingLoopback(tempDir);
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/photo.bmp";
+            service.fetchAndCache(9L, url);
+
+            var cached = service.read(9L, url);
+            assertTrue(cached.isPresent(), "the .bin+.meta fallback must be a cache hit on the next read");
+            assertArrayEquals(bmp, cached.get().bytes());
+            assertEquals("image/bmp", cached.get().contentType());
+            assertEquals(1, hits.get(), "a working fallback cache must not refetch from the external server");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void readReturnsEmptyWhenNothingCachedYet(@TempDir Path tempDir) {
+        assertTrue(serviceAllowingLoopback(tempDir).read(999L, "https://example.org/never-fetched.jpg").isEmpty());
+    }
+
+    @Test
+    void reusedIdWithADifferentUrlIsNotServedFromTheOldIdsCache(@TempDir Path tempDir) throws Exception {
+        // Simulates a dev-environment schema reset restarting the identity sequence: id 1 pointed
+        // at one photo, gets deleted, and a later resync reuses id 1 for a completely different
+        // animal_images row. The cache key must include the URL so the old bytes aren't served.
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/first.jpg", exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "image/jpeg");
+            exchange.sendResponseHeaders(200, FAKE_JPEG.length);
+            try (var out = exchange.getResponseBody()) { out.write(FAKE_JPEG); }
+        });
+        server.start();
+        try {
+            var service = serviceAllowingLoopback(tempDir);
+            String firstUrl = "http://127.0.0.1:" + server.getAddress().getPort() + "/first.jpg";
+            service.fetchAndCache(1L, firstUrl);
+
+            String secondUrl = "http://127.0.0.1:" + server.getAddress().getPort() + "/second.jpg";
+            assertTrue(service.read(1L, secondUrl).isEmpty(),
+                    "same id but a different source URL must be treated as a cache miss");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void rejectsNonImageContentType(@TempDir Path tempDir) throws Exception {
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        byte[] html = "<html></html>".getBytes(StandardCharsets.UTF_8);
+        server.createContext("/page", exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "text/html");
+            exchange.sendResponseHeaders(200, html.length);
+            try (var out = exchange.getResponseBody()) { out.write(html); }
+        });
+        server.start();
+        try {
+            var service = serviceAllowingLoopback(tempDir);
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/page";
+            var ex = assertThrows(IllegalStateException.class, () -> service.fetchAndCache(2L, url));
+            assertTrue(ex.getMessage().contains("text/html"));
+            assertTrue(service.read(2L, url).isEmpty());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void rejectsNonOkStatus(@TempDir Path tempDir) throws Exception {
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/missing", exchange -> exchange.sendResponseHeaders(404, -1));
+        server.start();
+        try {
+            var service = serviceAllowingLoopback(tempDir);
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/missing";
+            var ex = assertThrows(IllegalStateException.class, () -> service.fetchAndCache(3L, url));
+            assertTrue(ex.getMessage().contains("404"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void rejectsResponsesOverTheSizeCap(@TempDir Path tempDir) throws Exception {
+        byte[] tooLarge = new byte[10 * 1024 * 1024 + 1];
+        Arrays.fill(tooLarge, (byte) 1);
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/huge.jpg", exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "image/jpeg");
+            exchange.sendResponseHeaders(200, tooLarge.length);
+            try (var out = exchange.getResponseBody()) { out.write(tooLarge); }
+        });
+        server.start();
+        try {
+            var service = serviceAllowingLoopback(tempDir);
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/huge.jpg";
+            var ex = assertThrows(IllegalStateException.class, () -> service.fetchAndCache(4L, url));
+            assertTrue(ex.getMessage().contains("cache limit"));
+            assertTrue(service.read(4L, url).isEmpty());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void followsExactlyOneRedirectHop(@TempDir Path tempDir) throws Exception {
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/redirect.jpg", exchange -> {
+            exchange.getResponseHeaders().add("Location", "/photo.jpg");
+            exchange.sendResponseHeaders(302, -1);
+        });
+        server.createContext("/photo.jpg", exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "image/jpeg");
+            exchange.sendResponseHeaders(200, FAKE_JPEG.length);
+            try (var out = exchange.getResponseBody()) { out.write(FAKE_JPEG); }
+        });
+        server.start();
+        try {
+            var service = serviceAllowingLoopback(tempDir);
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/redirect.jpg";
+            var fetched = service.fetchAndCache(6L, url);
+            assertArrayEquals(FAKE_JPEG, fetched.bytes());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void doesNotFollowASecondRedirectHop(@TempDir Path tempDir) throws Exception {
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/first.jpg", exchange -> {
+            exchange.getResponseHeaders().add("Location", "/second.jpg");
+            exchange.sendResponseHeaders(302, -1);
+        });
+        server.createContext("/second.jpg", exchange -> {
+            exchange.getResponseHeaders().add("Location", "/photo.jpg");
+            exchange.sendResponseHeaders(302, -1);
+        });
+        server.start();
+        try {
+            var service = serviceAllowingLoopback(tempDir);
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/first.jpg";
+            var ex = assertThrows(IllegalStateException.class, () -> service.fetchAndCache(7L, url));
+            assertTrue(ex.getMessage().contains("302"));
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void refetchingWithADifferentContentTypeReplacesTheCachedVariant(@TempDir Path tempDir) throws Exception {
+        var contentType = new AtomicInteger(0);
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/photo.jpg", exchange -> {
+            boolean firstCall = contentType.getAndIncrement() == 0;
+            byte[] body = firstCall ? FAKE_JPEG : FAKE_PNG;
+            exchange.getResponseHeaders().add("Content-Type", firstCall ? "image/jpeg" : "image/png");
+            exchange.sendResponseHeaders(200, body.length);
+            try (var out = exchange.getResponseBody()) { out.write(body); }
+        });
+        server.start();
+        try {
+            var service = serviceAllowingLoopback(tempDir);
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/photo.jpg";
+            service.fetchAndCache(8L, url);
+            service.fetchAndCache(8L, url);
+
+            var cached = service.read(8L, url);
+            assertTrue(cached.isPresent());
+            assertEquals("image/png", cached.get().contentType(),
+                    "the stale jpg variant must not shadow the newer png one");
+            assertArrayEquals(FAKE_PNG, cached.get().bytes());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void refusesLoopbackHostWithTheRealGuard(@TempDir Path tempDir) {
+        var service = new AnimalImageCacheService(tempDir.toString());
+        var ex = assertThrows(IllegalStateException.class,
+                () -> service.fetchAndCache(5L, "http://127.0.0.1:9/x.jpg"));
+        assertTrue(ex.getMessage().contains("internal address"));
+    }
+
+    @Test
+    void isInternalAddressClassifiesPrivateAndPublicRanges() throws Exception {
+        assertTrue(AnimalImageCacheService.isInternalAddress(InetAddress.getByName("127.0.0.1")));
+        assertTrue(AnimalImageCacheService.isInternalAddress(InetAddress.getByName("10.1.2.3")));
+        assertTrue(AnimalImageCacheService.isInternalAddress(InetAddress.getByName("192.168.1.1")));
+        assertTrue(AnimalImageCacheService.isInternalAddress(InetAddress.getByName("169.254.1.1")));
+        assertFalse(AnimalImageCacheService.isInternalAddress(InetAddress.getByName("8.8.8.8")));
+    }
+
+    @Test
+    void isInternalAddressClassifiesModernIpv6UniqueLocalRange() throws Exception {
+        assertTrue(AnimalImageCacheService.isInternalAddress(InetAddress.getByName("fd12:3456:789a:1::1")));
+        assertTrue(AnimalImageCacheService.isInternalAddress(InetAddress.getByName("fc00::1")));
+        assertFalse(AnimalImageCacheService.isInternalAddress(InetAddress.getByName("2001:4860:4860::8888")));
+    }
+}
