@@ -75,7 +75,7 @@ class AnimalControllerTests {
         var records = mock(AnimalExternalRecordRepository.class);
         var animal = new Animal();
         animal.id = 9L;
-        animal.shelter = null; // Loss reports never have a shelter; shelter_id is nullable for this listing type.
+        animal.shelter = null; // 분실 신고는 절대 보호소가 없다; 이 게시 유형은 shelter_id가 nullable이다.
         var record = new AnimalExternalRecord();
         record.animal = animal;
         record.source = AnimalImportService.LOSS_SOURCE;

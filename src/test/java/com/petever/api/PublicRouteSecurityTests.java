@@ -25,7 +25,8 @@ class PublicRouteSecurityTests {
     void onlyAnimalGetIsPublicAndSyncRemainsProtected() throws Exception {
         try (var client = HttpClient.newHttpClient()) {
             var list = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/animals")).GET().build();
-            // No data profile means no animal controller: 404 proves the route passed security.
+            // 데이터 프로필이 없으면 animal 컨트롤러도 없다: 404는 이 경로가 보안 검사를
+            // 통과했다는 증거다.
             assertEquals(404, client.send(list, HttpResponse.BodyHandlers.discarding()).statusCode());
             var sync = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/admin/animal-sync"))
                     .header("Content-Type", "application/json")

@@ -34,8 +34,8 @@ class AnimalImageControllerTests {
         assertArrayEquals(new byte[]{1, 2, 3}, response.getBody());
         assertEquals("image/jpeg", response.getHeaders().getContentType().toString());
         verify(cache, never()).fetchAndCache(anyLong(), anyString());
-        // Content-addressed, not id-only: proves the ETag would change if the same id were later
-        // reused for a different source URL (dev schema reset), instead of staying "img-1" forever.
+        // id 단독이 아니라 콘텐츠 기반: 같은 id가 나중에 다른 원본 URL로 재사용되더라도(dev
+        // 스키마 리셋) ETag가 "img-1"로 영원히 고정되지 않고 함께 바뀐다는 것을 증명한다.
         assertEquals("\"img-" + AnimalImageCacheService.cacheKey(1L, "https://example.org/1.jpg") + "\"",
                 response.getHeaders().getETag());
     }

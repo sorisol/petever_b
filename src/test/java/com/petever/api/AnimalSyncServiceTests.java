@@ -102,8 +102,8 @@ class AnimalSyncServiceTests {
         var lossClient = mock(AnimalSourceClient.class);
         var importer = mock(AnimalImportService.class);
         var runs = mock(SyncRunRepository.class);
-        // Fail before runSync's own try/catch begins (the initial run-start INSERT), specifically
-        // for the loss source, to prove it can't stop the abandonment source from running.
+        // runSync 자신의 try/catch가 시작되기 전(최초 실행 시작 INSERT)에, 그것도 분실 신고
+        // 소스에서만 실패시켜, 그게 구조동물 소스의 실행까지 막지는 못한다는 것을 증명한다.
         var idGen = new AtomicLong(0);
         when(runs.saveAndFlush(any(SyncRun.class))).thenAnswer(call -> {
             SyncRun run = call.getArgument(0);

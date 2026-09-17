@@ -52,8 +52,8 @@ public class AnimalController {
         listingType = filter(listingType, List.of("LOST_REPORT", "SHELTER_ANIMAL"));
         Page<Animal> result = animals.findPublic(species, careStatus, listingType,
                 PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "id")));
-        // listingType is inferred from animal_external_records.source; update this mapping
-        // (here and in AnimalRepository.findPublic) whenever a new source is added.
+        // listingType은 animal_external_records.source로부터 추론한다; 새 소스가 추가되면
+        // 이 매핑을(여기와 AnimalRepository.findPublic 양쪽 모두) 갱신해야 한다.
         Set<Long> lostIds = records.findByAnimalIdIn(result.getContent().stream().map(a -> a.id).toList()).stream()
                 .filter(r -> AnimalImportService.LOSS_SOURCE.equals(r.source))
                 .map(r -> r.animal.id).collect(Collectors.toSet());

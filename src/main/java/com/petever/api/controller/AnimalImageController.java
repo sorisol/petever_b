@@ -19,10 +19,10 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Duration;
 
-// Serves animal photos through our own server instead of the external public-API host the
-// browser used to hit directly (see docs/superpowers/specs/2026-09-15-animal-image-proxy-cache-design.md).
-// Must stay reachable anonymously (SecurityConfig permits GET /api/animals/images/*) since
-// plain <img> requests carry no auth.
+// 브라우저가 직접 두드리던 외부 공공 API 호스트 대신 우리 서버를 통해 동물 사진을 서빙한다
+// (docs/superpowers/specs/2026-09-15-animal-image-proxy-cache-design.md 참고). 일반 <img>
+// 요청은 인증 정보를 싣지 않으므로 익명으로도 계속 접근 가능해야 한다(SecurityConfig가
+// GET /api/animals/images/*를 허용).
 @RestController
 @Profile("supabase")
 @RequestMapping("/api/animals/images")
@@ -44,9 +44,10 @@ public class AnimalImageController {
 
         CachedImage cached;
         try {
-            // read() can itself throw (e.g. a concurrent cache-cleanup deletes the file between
-            // Files.exists and Files.readAllBytes) -- it must fail the same way fetchAndCache does,
-            // not leak a 500 past the "failure = 404" contract this endpoint promises callers.
+            // read()도 예외를 던질 수 있다(예: 동시에 진행 중인 캐시 정리가 Files.exists와
+            // Files.readAllBytes 사이에 파일을 지우는 경우) -- fetchAndCache와 동일하게
+            // 실패 처리해야 한다. 이 엔드포인트가 호출자에게 약속한 "실패 = 404" 계약을 깨고
+            // 500이 새어 나가면 안 된다.
             cached = cache.read(id, image.url).orElseGet(() -> cache.fetchAndCache(id, image.url));
         } catch (RuntimeException ex) {
             log.warn("Failed to fetch/cache animal image {}: {}", id, ex.getMessage());
@@ -63,9 +64,9 @@ public class AnimalImageController {
         return ResponseEntity.ok()
                 .contentType(contentType)
                 .cacheControl(CacheControl.maxAge(Duration.ofDays(7)).cachePublic())
-                // Content-addressed (id + source URL hash), not id-only: an id-only ETag would
-                // keep returning a 304 for up to 7 days after id-reuse (dev schema reset) or a
-                // source-side content change swaps in different bytes for the same id.
+                // id 단독이 아니라 콘텐츠 기반(id + 원본 URL 해시)으로 만든다: id만 쓰면
+                // id 재사용(dev 스키마 리셋) 이후나 소스 측 콘텐츠 변경으로 같은 id의 바이트가
+                // 바뀐 뒤에도 최대 7일간 계속 304를 내려주게 된다.
                 .eTag("\"img-" + AnimalImageCacheService.cacheKey(id, image.url) + "\"")
                 .body(cached.bytes());
     }

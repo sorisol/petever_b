@@ -39,7 +39,7 @@ public class AnimalInitialSync {
                 log.info("Initial animal sync ({}): status={}, fetched={}, inserted={}, failed={}",
                         source.source(), source.status(), source.fetched(), source.inserted(), source.failed());
         } catch (Exception ex) {
-            // A failed optional import must not take down the public API at startup.
+            // 선택적 수집이 실패했다고 해서 시작 시점에 공개 API 전체가 죽으면 안 된다.
             log.warn("Initial animal sync failed ({}); server remains available", ex.getClass().getSimpleName());
         }
     }
