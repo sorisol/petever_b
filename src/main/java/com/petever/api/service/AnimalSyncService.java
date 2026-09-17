@@ -62,9 +62,9 @@ public class AnimalSyncService {
                 runSyncIsolated(AnimalImportService.LOSS_SOURCE, lossClient, List.of(), from, to, true)));
     }
 
-    // A failure while starting a source's run (e.g. the initial sync_runs INSERT itself fails)
-    // happens before runSync's own try/catch begins, so it would otherwise propagate out of this
-    // method entirely and stop the other source from running at all. Isolate it here instead.
+    // 소스별 실행을 시작하다가 발생한 실패(예: 최초 sync_runs INSERT 자체의 실패)는
+    // runSync 자신의 try/catch가 시작되기 전에 일어나므로, 그대로 두면 이 메서드 밖으로
+    // 전파되어 다른 소스의 실행까지 완전히 막아버린다. 그래서 여기서 따로 격리한다.
     private SourceResult runSyncIsolated(String source, AnimalSourceClient client, List<String> regions, LocalDate from, LocalDate to, boolean national) {
         try {
             return runSync(source, client, regions, from, to, national);

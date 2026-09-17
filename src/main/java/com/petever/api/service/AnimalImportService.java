@@ -29,10 +29,10 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 @Profile("supabase")
 public class AnimalImportService {
-    // "ANIMAL_API" now names one of two public sources (the rescue-animal notice API,
-    // as opposed to LOSS_INFO). Renaming to ABANDONMENT_API was considered but rejected:
-    // it would require migrating already-recorded animal_external_records/sync_runs
-    // rows in Supabase for a naming-clarity gain only, so the value stays as-is.
+    // "ANIMAL_API"는 이제 두 공공 소스 중 하나(LOSS_INFO와 대비되는 구조동물 공고 API)를
+    // 가리키는 이름이다. ABANDONMENT_API로 이름을 바꾸는 안도 고려했지만 기각했다 —
+    // 이름을 명확히 하는 것만을 위해 Supabase에 이미 기록된 animal_external_records/
+    // sync_runs 행들을 마이그레이션해야 해서, 값은 그대로 둔다.
     public static final String SOURCE = "ANIMAL_API";
     static final String MISSING_EXTERNAL_ID = "Missing desertionNo";
     public static final String LOSS_SOURCE = "LOSS_INFO";
@@ -73,11 +73,11 @@ public class AnimalImportService {
             animal.shelter.externalSource = SOURCE;
             animal.shelter.externalId = shelterId;
         } else if (animal.shelter == null) {
-            // Unlike loss reports (no shelter concept at all), an abandonment listing without
-            // careRegNo still has a real physical shelter, just without a registration number in
-            // this response — keep the unidentified-but-real Shelter row (with careNm/Tel/Addr
-            // below) rather than nulling it out; shelter_id being nullable is about listings that
-            // truly have no shelter, not this case.
+            // 분실 신고(보호소 개념 자체가 없음)와 달리, careRegNo가 없는 구조동물 공고도
+            // 실제 물리적인 보호소는 있고 단지 이번 응답에 등록번호가 없을 뿐이다 —
+            // null로 만드는 대신 (아래 careNm/Tel/Addr을 담은) "식별은 안 되지만 실존하는"
+            // Shelter 행을 유지한다. shelter_id가 nullable인 것은 정말 보호소가 없는
+            // 게시물을 위한 것이지, 이 경우를 위한 게 아니다.
             animal.shelter = new Shelter();
         }
         Shelter shelter = animal.shelter;
@@ -144,7 +144,7 @@ public class AnimalImportService {
             record.animal = new Animal();
         }
         Animal animal = record.animal;
-        animal.shelter = null; // Loss reports have no shelter; shelter_id is nullable for this listing type.
+        animal.shelter = null; // 분실 신고는 보호소가 없다; 이 게시 유형은 shelter_id가 nullable이다.
         String kind = text(item, "kindCd");
         animal.species = lossSpecies(kind);
         animal.breedName = kind;
@@ -154,7 +154,7 @@ public class AnimalImportService {
         animal.ageDescription = text(item, "age");
         animal.color = text(item, "colorCd");
         animal.foundDate = date(text(item, "happenDt"));
-        animal.foundPlace = text(item, "orgNm"); // Never expose caller name, phone, address, or precise happenPlace.
+        animal.foundPlace = text(item, "orgNm"); // 신고자 이름·전화번호·주소·정확한 happenPlace는 절대 노출하지 않는다.
         if ("PUBLIC_API".equals(animal.statusAuthority)) animal.careStatus = "UNKNOWN";
         animals.save(animal);
 
@@ -162,8 +162,8 @@ public class AnimalImportService {
         record.lastSeenAt = Instant.now();
         record.lastSyncedAt = record.lastSeenAt;
         records.save(record);
-        // animal_images.source only distinguishes who uploaded the photo (PUBLIC_API / SHELTER);
-        // which public API it came from is tracked separately via animal_external_records.source.
+        // animal_images.source는 사진을 "누가 올렸는지"만 구분한다(PUBLIC_API / SHELTER);
+        // 어떤 공공 API에서 왔는지는 animal_external_records.source로 별도 추적한다.
         images.deleteByAnimalAndSource(animal, "PUBLIC_API");
         AnimalImage image = new AnimalImage();
         image.animal = animal;
@@ -174,10 +174,10 @@ public class AnimalImportService {
         return inserted;
     }
 
-    // Photo URL is deliberately excluded: the portal can rotate the image CDN path for the
-    // same report, which would otherwise mint a new record on re-collection. This weaker
-    // identity (no known stable report number field is available) can still collide if two
-    // reports share date+region+breed+sex+color; see docs/database-design.md for this limitation.
+    // 사진 URL은 의도적으로 제외한다: 포털이 같은 신고 건에 대해 이미지 CDN 경로를 바꿀 수
+    // 있는데, 포함시키면 재수집 시 새 레코드가 생겨버린다. 이렇게 약해진 식별 방식
+    // (안정적인 신고 번호 필드가 알려진 게 없음)은 두 신고가 날짜+지역+품종+성별+색상을
+    // 공유하면 여전히 충돌할 수 있다 — 이 한계는 docs/database-design.md 참고.
     public static String lossId(JsonNode item) {
         String[] facts = {text(item, "happenDt"), text(item, "orgNm"),
                 text(item, "kindCd"), text(item, "sexCd"), text(item, "colorCd")};
@@ -201,7 +201,7 @@ public class AnimalImportService {
     }
 
     private String safeLossPayload(JsonNode item, String photo) {
-        // Loss reports contain caller PII; retain only non-contact fields needed for display.
+        // 분실 신고에는 신고자 개인정보가 담겨 있으므로, 화면에 필요한 비연락처 필드만 남긴다.
         var fields = new LinkedHashMap<String, String>();
         for (String key : List.of("kindCd", "colorCd", "sexCd", "age", "happenDt", "orgNm")) {
             String value = text(item, key);
@@ -246,13 +246,13 @@ public class AnimalImportService {
         catch (DateTimeParseException ex) { return null; }
     }
 
-    // Real response format unverified (no live API access to confirm); tolerant of a bare
-    // number or a unit suffix like "3.5(Kg)".
+    // 실제 응답 형식은 미확인 상태다(확인할 실제 API 접근 권한이 없음) — 숫자만 오는 경우와
+    // "3.5(Kg)" 같은 단위 접미사가 붙는 경우 모두 관대하게 처리한다.
     private static final Pattern WEIGHT = Pattern.compile("([0-9]+(?:\\.[0-9]+)?)");
 
-    // animals.weight_kg is DECIMAL(6,2) (max 9999.99); a mismapped field (e.g. a date-like
-    // string) parsing into a larger number must not overflow that column and fail the whole
-    // item's import.
+    // animals.weight_kg는 DECIMAL(6,2)다(최대 9999.99). 필드가 잘못 매핑돼(예: 날짜 같은
+    // 문자열) 더 큰 숫자로 파싱되더라도 이 컬럼이 오버플로돼 항목 전체의 수집이 실패하면
+    // 안 된다.
     private static final BigDecimal MAX_WEIGHT_KG = new BigDecimal("9999.99");
 
     private static BigDecimal weight(String value) {

@@ -21,9 +21,9 @@ class AnimalImageCacheServiceTests {
     private static final byte[] FAKE_JPEG = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, 1, 2, 3, 4};
     private static final byte[] FAKE_PNG = {(byte) 0x89, 'P', 'N', 'G', 1, 2, 3};
 
-    // Tests must point fetchAndCache() at a local stub server, which is necessarily loopback --
-    // so they use the "allow all hosts" test constructor and exercise the real SSRF guard
-    // (isInternalAddress / the default constructor) separately below.
+    // 테스트는 fetchAndCache()를 로컬 스텁 서버로 향하게 해야 하는데 이는 어쩔 수 없이
+    // 루프백이다 -- 그래서 "모든 호스트 허용" 테스트용 생성자를 쓰고, 실제 SSRF 가드
+    // (isInternalAddress / 기본 생성자)는 아래에서 별도로 검증한다.
     private static AnimalImageCacheService serviceAllowingLoopback(Path cacheDir) {
         return new AnimalImageCacheService(cacheDir.toString(), address -> false);
     }
@@ -60,8 +60,8 @@ class AnimalImageCacheServiceTests {
 
     @Test
     void cachesAnUnmappedContentTypeViaTheBinPlusMetaFallback(@TempDir Path tempDir) throws Exception {
-        // image/bmp has no entry in EXTENSION_BY_CONTENT_TYPE, so this exercises the ".bin" +
-        // ".meta" fallback path in writeCacheFile()/read() rather than the extension-mapped one.
+        // image/bmp는 EXTENSION_BY_CONTENT_TYPE에 항목이 없으므로, 확장자 매핑 경로가 아니라
+        // writeCacheFile()/read()의 ".bin" + ".meta" 폴백 경로를 검증한다.
         byte[] bmp = {'B', 'M', 1, 2, 3};
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         var hits = new AtomicInteger();
@@ -94,9 +94,9 @@ class AnimalImageCacheServiceTests {
 
     @Test
     void reusedIdWithADifferentUrlIsNotServedFromTheOldIdsCache(@TempDir Path tempDir) throws Exception {
-        // Simulates a dev-environment schema reset restarting the identity sequence: id 1 pointed
-        // at one photo, gets deleted, and a later resync reuses id 1 for a completely different
-        // animal_images row. The cache key must include the URL so the old bytes aren't served.
+        // 로컬 개발 환경에서 스키마를 리셋해 identity 시퀀스가 재시작되는 상황을 흉내낸다:
+        // id 1이 사진 하나를 가리키다가 삭제되고, 이후 재동기화가 완전히 다른 animal_images
+        // 행에 id 1을 재사용한다. 캐시 키에 URL이 포함되어야 낡은 바이트가 서빙되지 않는다.
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/first.jpg", exchange -> {
             exchange.getResponseHeaders().add("Content-Type", "image/jpeg");

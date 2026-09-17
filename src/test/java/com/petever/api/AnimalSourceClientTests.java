@@ -59,9 +59,9 @@ class AnimalSourceClientTests {
         }
     }
 
-    // AnimalSourceClient itself is no longer the production wiring path (AnimalSourceClientConfig
-    // builds the two real beans); this exercises that config class directly, including which env
-    // var wins per source when both ANIMAL_API_SERVICE_KEY and LOSSINFO_API_KEY are set.
+    // AnimalSourceClient 자체는 더 이상 프로덕션 배선 경로가 아니다(AnimalSourceClientConfig가
+    // 실제 두 빈을 만든다); 이 테스트는 그 설정 클래스를 직접 검증하며, ANIMAL_API_SERVICE_KEY와
+    // LOSSINFO_API_KEY가 둘 다 설정됐을 때 소스별로 어느 환경변수가 우선하는지도 함께 확인한다.
     @Test
     void configResolvesDistinctKeyPriorityPerSource() throws Exception {
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);

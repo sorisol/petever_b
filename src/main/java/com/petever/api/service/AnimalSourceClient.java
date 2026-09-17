@@ -14,9 +14,9 @@ import java.time.LocalDate;
 
 import org.springframework.beans.factory.annotation.Value;
 
-// Not a @Component: two beans (one per public API source) are constructed explicitly by
-// AnimalSourceClientConfig with distinct URL/key properties. The @Value defaults below only
-// matter when a test registers this class directly with Spring (see AnimalSourceClientTests).
+// @Component가 아님: 공공 API 소스마다 하나씩, AnimalSourceClientConfig가 서로 다른 URL/키
+// 속성으로 두 빈을 명시적으로 생성한다. 아래 @Value 기본값은 테스트가 이 클래스를 Spring에
+// 직접 등록할 때만 의미가 있다(AnimalSourceClientTests 참고).
 public class AnimalSourceClient {
     private final String url;
     private final String serviceKey;
@@ -47,7 +47,8 @@ public class AnimalSourceClient {
     private AnimalSourceParser.Page send(String regionQuery, LocalDate from, LocalDate to, int page) {
         if (!configured())
             throw new IllegalStateException("LOSSINFO_API_KEY or ANIMAL_API_SERVICE_KEY is required for sync");
-        // Portal keys may arrive already percent-encoded; normalize before encoding the query once.
+        // 포털이 발급하는 키가 이미 퍼센트 인코딩된 채로 올 수 있으므로, 쿼리를 한 번만
+        // 인코딩하기 전에 정규화한다.
         String key = serviceKey.contains("%") ? URLDecoder.decode(serviceKey, StandardCharsets.UTF_8) : serviceKey;
         String separator = url.contains("?") ? "&" : "?";
         String query = "serviceKey=" + encode(key) + regionQuery

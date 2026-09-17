@@ -30,21 +30,21 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
-// Caches animal_images.url (an external public-API file) on local disk, keyed by
-// animal_images.id + a short hash of the source URL, so the browser never talks to the
-// (slow, uncached) external host directly. The URL hash in the key -- not just the id -- guards
-// against a dev-environment schema reset restarting the id sequence and silently serving a stale
-// file for a reused id (a real risk for the local-dev speedup this exists for). Disk cache is not
-// persisted across redeploys and is not shared across instances -- acceptable for now since the
-// hosting target is still undecided (see docs/architecture.md); see the design doc for the
-// known-limitations list this trades off against.
+// animal_images.url(외부 공공 API 파일)을 로컬 디스크에 캐시한다. 캐시 키는 animal_images.id +
+// 원본 URL의 짧은 해시로 구성해, 브라우저가 (느리고 캐시되지 않는) 외부 호스트에 직접 접근하지
+// 않도록 한다. 키에 id뿐 아니라 URL 해시도 포함하는 이유는, 로컬 개발 환경에서 스키마를 재생성해
+// id 시퀀스가 처음부터 다시 시작될 때 재사용된 id에 낡은 파일이 잘못 서빙되는 사고(이 기능이
+// 노리는 로컬 개발 환경에서 실제로 벌어질 수 있는 위험)를 막기 위해서다. 디스크 캐시는 재배포 시
+// 유지되지 않고 인스턴스 간에도 공유되지 않는다 — 호스팅 대상이 아직 정해지지 않았으므로
+// (docs/architecture.md 참고) 현재로서는 감수한다. 이 트레이드오프로 인한 알려진 제약 목록은
+// 설계 문서를 참고한다.
 @Service
 @Profile("supabase")
 public class AnimalImageCacheService {
     private static final Logger log = LoggerFactory.getLogger(AnimalImageCacheService.class);
     private static final long MAX_BYTES = 10L * 1024 * 1024;
-    // LinkedHashMap: iteration order (used by read() to probe candidate extensions) must be
-    // deterministic across JVMs, unlike Map.of(...).
+    // LinkedHashMap: read()가 후보 확장자를 순서대로 탐색하므로 순회 순서가 JVM마다 달라지면
+    // 안 된다 — Map.of(...)는 이 보장이 없다.
     private static final Map<String, String> EXTENSION_BY_CONTENT_TYPE = new LinkedHashMap<>();
     static {
         EXTENSION_BY_CONTENT_TYPE.put("image/jpeg", "jpg");
@@ -64,9 +64,9 @@ public class AnimalImageCacheService {
         this(cacheDir, AnimalImageCacheService::isInternalAddress);
     }
 
-    // Visible for tests: lets AnimalImageCacheServiceTests point fetchAndCache() at a local
-    // HttpServer stub (necessarily loopback) without tripping the real SSRF guard, while the
-    // guard itself is exercised separately via isInternalAddress(...) and a plain-loopback URL.
+    // 테스트를 위해 공개함: AnimalImageCacheServiceTests가 실제 SSRF 가드에 걸리지 않고
+    // fetchAndCache()를 로컬 HttpServer 스텁(어쩔 수 없이 루프백 주소)으로 향하게 할 수 있다.
+    // 가드 자체는 isInternalAddress(...)와 순수 루프백 URL을 이용해 별도로 검증한다.
     AnimalImageCacheService(String cacheDir, Predicate<InetAddress> disallowedHost) {
         this.cacheDir = Path.of(cacheDir);
         this.disallowedHost = disallowedHost;
@@ -109,10 +109,10 @@ public class AnimalImageCacheService {
         }
     }
 
-    // Sends the request; on a redirect (java.net.http.HttpClient defaults to Redirect.NEVER)
-    // follows exactly one hop, re-running the SSRF host guard against the redirect target --
-    // auto-following (HttpClient's built-in NORMAL policy) would not re-check the guard per hop,
-    // which would let a public host redirect straight to an internal address.
+    // 요청을 보낸다. 리다이렉트(java.net.http.HttpClient의 기본값은 Redirect.NEVER)를 만나면
+    // 정확히 1홉만 따라가며 그 리다이렉트 대상에도 SSRF 호스트 가드를 다시 적용한다 —
+    // HttpClient 내장 NORMAL 정책으로 자동 추종하면 홉마다 가드를 재검사하지 않아, 공개 호스트가
+    // 내부 주소로 바로 리다이렉트하는 것을 막지 못한다.
     private HttpResponse<InputStream> send(URI uri, long imageId, boolean isRedirectHop) {
         rejectInternalHost(uri.getHost());
         HttpResponse<InputStream> response;
@@ -132,20 +132,20 @@ public class AnimalImageCacheService {
             try {
                 response.body().close();
             } catch (IOException ignored) {
-                // best-effort: the connection is being discarded either way
+                // 최선 노력: 어차피 커넥션은 폐기되는 중이다
             }
             return send(uri.resolve(location), imageId, true);
         }
         return response;
     }
 
-    // Resolves the host up front and rejects loopback/private/link-local/any-local targets so this
-    // server-side fetch (standing in for what the browser used to do directly) can't be pointed at
-    // internal network addresses. Checks every resolved address (not just the first) since a host
-    // can advertise both a public and a private A/AAAA record. java.net.http.HttpClient has no
-    // per-request DNS resolver override in this JDK, so the actual connection re-resolves the host
-    // name -- a narrow DNS-rebinding gap between this check and that connection is an accepted
-    // residual risk here (see the design doc's SSRF section) rather than something this method closes.
+    // 호스트를 미리 resolve해 루프백/사설망/링크-로컬/any-local 대상을 거부한다 — 원래 브라우저가
+    // 직접 하던 이 서버 측 fetch가 내부망 주소를 향하지 못하게 하기 위해서다. 호스트가 공인
+    // 주소와 사설 주소 레코드를 동시에 광고할 수 있으므로 resolve된 모든 주소를 검사한다(첫
+    // 번째만 검사하지 않는다). 이 JDK의 java.net.http.HttpClient는 요청 단위 DNS 리졸버
+    // 오버라이드를 제공하지 않아 실제 커넥션은 호스트명을 다시 resolve한다 — 이 검사와 실제 연결
+    // 사이의 좁은 DNS 리바인딩 틈은 이 메서드가 막지 못하는, 감수하기로 한 잔여 위험이다(설계
+    // 문서의 SSRF 절 참고).
     private void rejectInternalHost(String host) {
         InetAddress[] addresses;
         try {
@@ -163,8 +163,8 @@ public class AnimalImageCacheService {
         if (address.isLoopbackAddress() || address.isSiteLocalAddress()
                 || address.isLinkLocalAddress() || address.isAnyLocalAddress() || address.isMulticastAddress())
             return true;
-        // Inet6Address.isSiteLocalAddress() only recognizes the deprecated fec0::/10 range; modern
-        // IPv6 unique local addresses (fc00::/7) fall through it entirely.
+        // Inet6Address.isSiteLocalAddress()는 폐기된 fec0::/10 대역만 인식한다. 현대적인 IPv6
+        // 유니크 로컬 주소(fc00::/7)는 이 검사를 완전히 통과해버린다.
         if (address instanceof Inet6Address v6) {
             byte first = v6.getAddress()[0];
             return (first & 0xFE) == 0xFC;
@@ -187,17 +187,17 @@ public class AnimalImageCacheService {
         String extension = EXTENSION_BY_CONTENT_TYPE.get(contentType);
         String baseName = key + "." + (extension != null ? extension : "bin");
         Path target = cacheDir.resolve(baseName);
-        // Unique per write (not just per key): the design allows concurrent misses for the same
-        // key to both reach here, and a shared "{key}.tmp" path would let two writers interleave
-        // into the same temp file before either renamed it.
+        // 키별이 아니라 쓰기별로 유일하게 만든다: 설계상 같은 키에 대한 동시 캐시 미스가
+        // 여기까지 함께 도달할 수 있는데, "{key}.tmp"라는 공유 경로를 쓰면 둘 중 하나가
+        // rename하기 전에 두 쓰기 작업이 같은 임시 파일에 뒤섞여 쓰일 수 있다.
         Path tmp = cacheDir.resolve(baseName + "." + java.util.UUID.randomUUID() + ".tmp");
         try {
             Files.write(tmp, bytes);
             Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            // Clean up stale sibling variants (e.g. a leftover .meta from a previous fetch that
-            // took the .bin fallback path) *before* writing this fetch's own .meta -- otherwise the
-            // cleanup below would delete the .meta this call just wrote, since it's neither `keep`
-            // nor a .tmp file, permanently breaking the .bin+.meta fallback for this key.
+            // 이번 fetch가 자신의 .meta를 쓰기 *전에* 오래된 형제 변형 파일(예: 이전에 .bin
+            // 폴백 경로를 탔던 fetch가 남긴 .meta)을 먼저 정리한다 — 순서를 바꾸면 아래 정리
+            // 로직이 방금 이 호출이 쓴 .meta를 `keep`도 아니고 .tmp 파일도 아니라는 이유로
+            // 지워버려, 이 키의 .bin+.meta 폴백이 영구히 망가진다.
             removeStaleVariants(key, target);
             if (extension == null) Files.writeString(cacheDir.resolve(key + ".meta"), contentType);
         } catch (IOException ex) {
@@ -205,8 +205,8 @@ public class AnimalImageCacheService {
         }
     }
 
-    // If an earlier fetch for the same key cached a different extension (the source flipped
-    // Content-Type between calls), drop it so read()'s extension probe can't return stale bytes.
+    // 같은 키에 대한 이전 fetch가 다른 확장자로 캐시했다면(호출 사이에 소스가 Content-Type을
+    // 바꾼 경우) 그 파일을 지워 read()의 확장자 탐색이 낡은 바이트를 반환하지 않게 한다.
     private void removeStaleVariants(String key, Path keep) {
         String prefix = key + ".";
         try (DirectoryStream<Path> siblings = Files.newDirectoryStream(cacheDir, prefix + "*")) {
@@ -236,9 +236,9 @@ public class AnimalImageCacheService {
         }
     }
 
-    // Public so the controller can derive a content-addressed ETag from the same key used to
-    // store/look up the cache file, instead of an id-only ETag that would keep serving a 304 for
-    // up to 7 days after id-reuse or a source-side content change replaces the cached bytes.
+    // 컨트롤러가 캐시 파일을 저장/조회할 때 쓰는 것과 같은 키로 콘텐츠 기반 ETag를 만들 수
+    // 있도록 공개한다 — id만으로 ETag를 만들면 id 재사용이나 소스 측 콘텐츠 변경으로 캐시된
+    // 바이트가 바뀐 뒤에도 최대 7일간 304를 계속 내려주게 된다.
     public static String cacheKey(long imageId, String sourceUrl) {
         return imageId + "-" + hash8(sourceUrl);
     }
