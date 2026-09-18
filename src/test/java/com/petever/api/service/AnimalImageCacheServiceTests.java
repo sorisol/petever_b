@@ -139,6 +139,82 @@ class AnimalImageCacheServiceTests {
     }
 
     @Test
+    void acceptsJpegBytesServedAsApplicationOctetStream(@TempDir Path tempDir) throws Exception {
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/photo", exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "application/octet-stream");
+            exchange.sendResponseHeaders(200, FAKE_JPEG.length);
+            try (var out = exchange.getResponseBody()) { out.write(FAKE_JPEG); }
+        });
+        server.start();
+        try {
+            var service = serviceAllowingLoopback(tempDir);
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/photo";
+
+            var fetched = service.fetchAndCache(10L, url);
+            assertArrayEquals(FAKE_JPEG, fetched.bytes());
+            assertEquals("image/jpeg", fetched.contentType());
+
+            var cached = service.read(10L, url);
+            assertTrue(cached.isPresent());
+            assertEquals("image/jpeg", cached.get().contentType());
+            assertArrayEquals(FAKE_JPEG, cached.get().bytes());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void rejectsNonImageBytesServedAsApplicationOctetStream(@TempDir Path tempDir) throws Exception {
+        byte[] html = "<html></html>".getBytes(StandardCharsets.UTF_8);
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/not-an-image", exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "application/octet-stream");
+            exchange.sendResponseHeaders(200, html.length);
+            try (var out = exchange.getResponseBody()) { out.write(html); }
+        });
+        server.start();
+        try {
+            var service = serviceAllowingLoopback(tempDir);
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/not-an-image";
+
+            var ex = assertThrows(IllegalStateException.class, () -> service.fetchAndCache(11L, url));
+            assertTrue(ex.getMessage().contains("image signature"));
+            assertTrue(service.read(11L, url).isEmpty());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void detectsOtherSupportedImageFormatsServedAsApplicationOctetStream(@TempDir Path tempDir) throws Exception {
+        assertOctetStreamDetected(tempDir.resolve("png"),
+                new byte[] {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}, "image/png", 12L);
+        assertOctetStreamDetected(tempDir.resolve("gif"),
+                "GIF89a".getBytes(StandardCharsets.US_ASCII), "image/gif", 13L);
+        assertOctetStreamDetected(tempDir.resolve("webp"),
+                new byte[] {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P'}, "image/webp", 14L);
+    }
+
+    private static void assertOctetStreamDetected(
+            Path cacheDir, byte[] bytes, String expectedContentType, long imageId) throws Exception {
+        var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/photo", exchange -> {
+            exchange.getResponseHeaders().add("Content-Type", "application/octet-stream");
+            exchange.sendResponseHeaders(200, bytes.length);
+            try (var out = exchange.getResponseBody()) { out.write(bytes); }
+        });
+        server.start();
+        try {
+            var service = serviceAllowingLoopback(cacheDir);
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/photo";
+            assertEquals(expectedContentType, service.fetchAndCache(imageId, url).contentType());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
     void rejectsNonOkStatus(@TempDir Path tempDir) throws Exception {
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/missing", exchange -> exchange.sendResponseHeaders(404, -1));
