@@ -19,6 +19,7 @@ import java.security.NoSuchAlgorithmException;
 import java.time.Duration;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
@@ -97,11 +98,17 @@ public class AnimalImageCacheService {
             if (response.statusCode() != 200)
                 throw new IllegalStateException("Image source returned HTTP " + response.statusCode() + " for " + imageId);
             String contentType = response.headers().firstValue("Content-Type")
-                    .map(v -> v.split(";", 2)[0].strip()).orElse("");
-            if (!contentType.startsWith("image/"))
+                    .map(v -> v.split(";", 2)[0].strip().toLowerCase(Locale.ROOT)).orElse("");
+            boolean octetStream = "application/octet-stream".equals(contentType);
+            if (!contentType.startsWith("image/") && !octetStream)
                 throw new IllegalStateException("Image source returned non-image Content-Type " + contentType + " for " + imageId);
 
             byte[] bytes = readUpToLimit(body, imageId);
+            if (octetStream) {
+                contentType = sniffImageContentType(bytes);
+                if (contentType == null)
+                    throw new IllegalStateException("Image source returned application/octet-stream without a supported image signature for " + imageId);
+            }
             writeCacheFile(cacheKey(imageId, sourceUrl), contentType, bytes);
             return new CachedImage(bytes, contentType);
         } catch (IOException ex) {
@@ -181,6 +188,23 @@ public class AnimalImageCacheService {
         } catch (IOException ex) {
             throw new IllegalStateException("Failed reading image body for " + imageId, ex);
         }
+    }
+
+    private static String sniffImageContentType(byte[] bytes) {
+        if (hasBytes(bytes, 0, new byte[] {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF})) return "image/jpeg";
+        if (hasBytes(bytes, 0, new byte[] {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A})) return "image/png";
+        if (hasBytes(bytes, 0, "GIF87a".getBytes(StandardCharsets.US_ASCII))
+                || hasBytes(bytes, 0, "GIF89a".getBytes(StandardCharsets.US_ASCII))) return "image/gif";
+        if (hasBytes(bytes, 0, "RIFF".getBytes(StandardCharsets.US_ASCII))
+                && hasBytes(bytes, 8, "WEBP".getBytes(StandardCharsets.US_ASCII))) return "image/webp";
+        return null;
+    }
+
+    private static boolean hasBytes(byte[] bytes, int offset, byte[] expected) {
+        if (bytes.length < offset + expected.length) return false;
+        for (int i = 0; i < expected.length; i++)
+            if (bytes[offset + i] != expected[i]) return false;
+        return true;
     }
 
     private void writeCacheFile(String key, String contentType, byte[] bytes) {
