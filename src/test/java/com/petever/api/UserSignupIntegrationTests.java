@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.net.CookieManager;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -114,11 +115,17 @@ class UserSignupIntegrationTests {
     }
 
     private HttpResponse<String> postSignup(String body) throws Exception {
-        var request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/signup"))
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body))
-                .build();
-        try (var client = HttpClient.newHttpClient()) {
+        try (var client = HttpClient.newBuilder().cookieHandler(new CookieManager()).build()) {
+            var csrfRequest = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/csrf"))
+                    .GET().build();
+            var csrfResponse = client.send(csrfRequest, HttpResponse.BodyHandlers.ofString());
+            assertEquals(200, csrfResponse.statusCode());
+            String token = com.jayway.jsonpath.JsonPath.read(csrfResponse.body(), "$.token");
+            var request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/signup"))
+                    .header("Content-Type", "application/json")
+                    .header("X-CSRF-TOKEN", token)
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
             return client.send(request, HttpResponse.BodyHandlers.ofString());
         }
     }
