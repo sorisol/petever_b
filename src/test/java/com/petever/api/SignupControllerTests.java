@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.util.Map;
 
 import com.petever.api.controller.SignupController;
+import com.petever.api.entity.User;
 import com.petever.api.service.DuplicateEmailException;
 import com.petever.api.service.SignupValidationException;
 import com.petever.api.service.UserSignupService;
@@ -27,6 +28,26 @@ import org.springframework.test.web.servlet.MockMvc;
 class SignupControllerTests {
     @Autowired MockMvc mvc;
     @MockitoBean UserSignupService signups;
+
+    @Test
+    void returnsCreatedUserWithoutPasswordOrHash() throws Exception {
+        var user = new User();
+        user.id = 42L;
+        user.email = "user@example.com";
+        user.nickname = "회원";
+        user.passwordHash = "never-return-this-hash";
+        when(signups.signup(any(), any(), any(), any(), any())).thenReturn(user);
+
+        mvc.perform(post("/api/auth/signup")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validRequest()))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.id").value(42))
+                .andExpect(jsonPath("$.email").value("user@example.com"))
+                .andExpect(jsonPath("$.nickname").value("회원"))
+                .andExpect(jsonPath("$.password").doesNotExist())
+                .andExpect(jsonPath("$.passwordHash").doesNotExist());
+    }
 
     @Test
     void returnsFieldErrorsForInvalidInput() throws Exception {
