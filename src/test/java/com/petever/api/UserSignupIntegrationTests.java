@@ -75,6 +75,44 @@ class UserSignupIntegrationTests {
         assertFalse(response.body().contains("password"));
     }
 
+    @Test
+    void returnsFieldErrorsForInvalidInputWithoutSaving() throws Exception {
+        var password = "가".repeat(25);
+        var response = postSignup("""
+                {
+                  "email": "not-an-email",
+                  "password": "%s",
+                  "passwordConfirmation": "different",
+                  "nickname": "x"
+                }
+                """.formatted(password));
+
+        assertEquals(400, response.statusCode());
+        assertTrue(response.body().contains("INVALID_INPUT"));
+        assertTrue(response.body().contains("email"));
+        assertTrue(response.body().contains("password"));
+        assertTrue(response.body().contains("passwordConfirmation"));
+        assertTrue(response.body().contains("nickname"));
+        assertEquals(0, jdbc.queryForObject("select count(*) from users", Integer.class));
+    }
+
+    @Test
+    void returnsConflictForAnExistingNormalizedEmail() throws Exception {
+        var first = postSignup("""
+                {"email":"member@example.com","password":"valid-password",
+                 "passwordConfirmation":"valid-password","nickname":"회원일"}
+                """);
+        var duplicate = postSignup("""
+                {"email":" MEMBER@EXAMPLE.COM ","password":"other-password",
+                 "passwordConfirmation":"other-password","nickname":"회원이"}
+                """);
+
+        assertEquals(201, first.statusCode());
+        assertEquals(409, duplicate.statusCode());
+        assertTrue(duplicate.body().contains("DUPLICATE_EMAIL"));
+        assertEquals(1, jdbc.queryForObject("select count(*) from users", Integer.class));
+    }
+
     private HttpResponse<String> postSignup(String body) throws Exception {
         var request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/signup"))
                 .header("Content-Type", "application/json")
