@@ -26,16 +26,17 @@ class SecurityConfig {
                         "/api/animals",
                         "/api/animals/*",
                         "/api/animals/images/*").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/auth/signup").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/admin/animal-sync").hasRole("SYNC_OPERATOR")
                 .anyRequest().authenticated())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .csrf(csrf -> csrf.ignoringRequestMatchers("/api/admin/animal-sync"))
+            .csrf(csrf -> csrf.ignoringRequestMatchers("/api/admin/animal-sync", "/api/auth/signup"))
             .httpBasic(Customizer.withDefaults());
         return http.build();
     }
 
     @Bean
-    PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }
+    PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(12); }
 
     @Bean
     UserDetailsService userDetailsService(

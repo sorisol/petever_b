@@ -28,6 +28,11 @@ class PublicRouteSecurityTests {
             // 데이터 프로필이 없으면 animal 컨트롤러도 없다: 404는 이 경로가 보안 검사를
             // 통과했다는 증거다.
             assertEquals(404, client.send(list, HttpResponse.BodyHandlers.discarding()).statusCode());
+            var signup = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/auth/signup"))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString("{}"))
+                    .build();
+            assertEquals(404, client.send(signup, HttpResponse.BodyHandlers.discarding()).statusCode());
             var sync = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/admin/animal-sync"))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString("{}")) .build();
