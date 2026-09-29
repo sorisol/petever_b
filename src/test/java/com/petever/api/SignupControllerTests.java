@@ -2,6 +2,7 @@ package com.petever.api;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -38,7 +39,7 @@ class SignupControllerTests {
         user.passwordHash = "never-return-this-hash";
         when(signups.signup(any(), any(), any(), any(), any())).thenReturn(user);
 
-        mvc.perform(post("/api/auth/signup")
+        mvc.perform(post("/api/auth/signup").with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validRequest()))
                 .andExpect(status().isCreated())
@@ -54,7 +55,7 @@ class SignupControllerTests {
         when(signups.signup(any(), any(), any(), any(), any()))
                 .thenThrow(new SignupValidationException(Map.of("password", "비밀번호 오류")));
 
-        mvc.perform(post("/api/auth/signup")
+        mvc.perform(post("/api/auth/signup").with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validRequest()))
                 .andExpect(status().isBadRequest())
@@ -67,7 +68,7 @@ class SignupControllerTests {
         when(signups.signup(any(), any(), any(), any(), any()))
                 .thenThrow(new DuplicateEmailException());
 
-        mvc.perform(post("/api/auth/signup")
+        mvc.perform(post("/api/auth/signup").with(csrf())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(validRequest()))
                 .andExpect(status().isConflict())
