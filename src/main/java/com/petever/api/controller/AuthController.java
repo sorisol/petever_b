@@ -55,7 +55,7 @@ public class AuthController {
         User user = loginService.authenticate(request.email, request.password);
         Account account = new Account(user.id, user.email, user.nickname);
         Authentication authentication = new UsernamePasswordAuthenticationToken(
-                account, null, List.of(new SimpleGrantedAuthority("ROLE_USER")));
+                account, null, List.of(new SimpleGrantedAuthority(securityRole(user.systemRole))));
         var context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(authentication);
         SecurityContextHolder.setContext(context);
@@ -64,6 +64,10 @@ public class AuthController {
         contexts.saveContext(context, servletRequest, servletResponse);
         csrfTokens.saveToken(null, servletRequest, servletResponse);
         return account;
+    }
+
+    private static String securityRole(String systemRole) {
+        return "ADMIN".equals(systemRole) ? "ROLE_ADMIN" : "ROLE_USER";
     }
 
     @GetMapping("/session")

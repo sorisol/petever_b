@@ -40,7 +40,7 @@ class PublicRouteSecurityTests {
             var sync = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/admin/animal-sync"))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString("{}")) .build();
-            assertEquals(401, client.send(sync, HttpResponse.BodyHandlers.discarding()).statusCode());
+            assertEquals(403, client.send(sync, HttpResponse.BodyHandlers.discarding()).statusCode());
         }
     }
 }
