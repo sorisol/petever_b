@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.LocalDate;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 
 // @Component가 아님: 공공 API 소스마다 하나씩, AnimalSourceClientConfig가 서로 다른 URL/키
@@ -20,14 +21,21 @@ import org.springframework.beans.factory.annotation.Value;
 public class AnimalSourceClient {
     private final String url;
     private final String serviceKey;
+    private final String endDateParameter;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     private final AnimalSourceParser parser = new AnimalSourceParser();
 
+    @Autowired
     public AnimalSourceClient(
             @Value("${ANIMAL_API_URL:https://apis.data.go.kr/1543061/lossInfoService/lossInfo}") String url,
             @Value("${LOSSINFO_API_KEY:${ANIMAL_API_SERVICE_KEY:}}") String serviceKey) {
+        this(url, serviceKey, "ended");
+    }
+
+    AnimalSourceClient(String url, String serviceKey, String endDateParameter) {
         this.url = url;
         this.serviceKey = serviceKey;
+        this.endDateParameter = endDateParameter;
     }
 
     public boolean configured() {
@@ -53,7 +61,7 @@ public class AnimalSourceClient {
         String separator = url.contains("?") ? "&" : "?";
         String query = "serviceKey=" + encode(key) + regionQuery
                 + "&bgnde=" + from.toString().replace("-", "")
-                + "&endde=" + to.toString().replace("-", "")
+                + "&" + endDateParameter + "=" + to.toString().replace("-", "")
                 + "&pageNo=" + page + "&numOfRows=100&_type=json";
         var request = HttpRequest.newBuilder(URI.create(url + separator + query))
                 .timeout(Duration.ofSeconds(20)).GET().build();

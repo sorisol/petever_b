@@ -18,7 +18,7 @@ public class AnimalSourceClientConfig {
     public AnimalSourceClient abandonmentSourceClient(
             @Value("${ANIMAL_API_ABANDONMENT_URL:https://apis.data.go.kr/1543061/abandonmentPublicService_v2/abandonmentPublic_v2}") String url,
             @Value("${ANIMAL_API_SERVICE_KEY:${LOSSINFO_API_KEY:}}") String serviceKey) {
-        return new AnimalSourceClient(url, serviceKey);
+        return new AnimalSourceClient(url, serviceKey, "endde");
     }
 
     // 키 우선순위: LOSSINFO_API_KEY 우선, ANIMAL_API_SERVICE_KEY는 폴백(.env.example 참고).
@@ -29,6 +29,6 @@ public class AnimalSourceClientConfig {
     public AnimalSourceClient lossInfoSourceClient(
             @Value("${ANIMAL_API_LOSS_URL:${ANIMAL_API_URL:https://apis.data.go.kr/1543061/lossInfoService/lossInfo}}") String url,
             @Value("${LOSSINFO_API_KEY:${ANIMAL_API_SERVICE_KEY:}}") String serviceKey) {
-        return new AnimalSourceClient(url, serviceKey);
+        return new AnimalSourceClient(url, serviceKey, "ended");
     }
 }
