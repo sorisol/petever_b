@@ -11,10 +11,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.net.InetSocketAddress;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
@@ -23,7 +26,7 @@ import org.springframework.core.env.MapPropertySource;
 
 class AnimalSourceClientTests {
     @Test
-    void nationalFetchOmitsRegionParametersAndEncodesKey() throws Exception {
+    void legacyLossFetchOmitsRegionParametersAndEncodesKey() throws Exception {
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         var query = new AtomicReference<String>();
         server.createContext("/animals", exchange -> {
@@ -38,10 +41,13 @@ class AnimalSourceClientTests {
         try {
             var client = new AnimalSourceClient("http://127.0.0.1:" + server.getAddress().getPort() + "/animals", "abc+def");
             client.fetch(LocalDate.of(2026, 9, 7), LocalDate.of(2026, 9, 14), 1);
-            assertTrue(query.get().contains("serviceKey=abc%2Bdef"));
-            assertTrue(query.get().contains("bgnde=20260907"));
-            assertFalse(query.get().contains("upr_cd="));
-            assertFalse(query.get().contains("org_cd="));
+            var parameters = queryParameters(query.get());
+            assertEquals("abc+def", parameters.get("serviceKey"));
+            assertEquals("20260907", parameters.get("bgnde"));
+            assertEquals("20260914", parameters.get("ended"));
+            assertFalse(parameters.containsKey("endde"));
+            assertFalse(parameters.containsKey("upr_cd"));
+            assertFalse(parameters.containsKey("org_cd"));
             assertEquals(0, new AnimalSourceParser().parse("{\"response\":{\"header\":{\"resultCode\":\"00\"},\"body\":{\"items\":{},\"totalCount\":0}}}").totalCount());
         } finally {
             server.stop(0);
@@ -63,7 +69,7 @@ class AnimalSourceClientTests {
     // 실제 두 빈을 만든다); 이 테스트는 그 설정 클래스를 직접 검증하며, ANIMAL_API_SERVICE_KEY와
     // LOSSINFO_API_KEY가 둘 다 설정됐을 때 소스별로 어느 환경변수가 우선하는지도 함께 확인한다.
     @Test
-    void configResolvesDistinctKeyPriorityPerSource() throws Exception {
+    void configResolvesDistinctKeysAndDateParametersPerSource() throws Exception {
         var server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         var query = new AtomicReference<String>();
         server.createContext("/probe", exchange -> {
@@ -95,13 +101,29 @@ class AnimalSourceClientTests {
                 var from = LocalDate.of(2026, 9, 7);
                 var to = LocalDate.of(2026, 9, 14);
                 abandonment.fetch(from, to, 1);
-                assertTrue(query.get().contains("serviceKey=abandonment-key"));
+                var abandonmentQuery = queryParameters(query.get());
+                assertEquals("abandonment-key", abandonmentQuery.get("serviceKey"));
+                assertEquals("20260907", abandonmentQuery.get("bgnde"));
+                assertEquals("20260914", abandonmentQuery.get("endde"));
+                assertFalse(abandonmentQuery.containsKey("ended"));
 
                 loss.fetch(from, to, 1);
-                assertTrue(query.get().contains("serviceKey=loss-key"));
+                var lossQuery = queryParameters(query.get());
+                assertEquals("loss-key", lossQuery.get("serviceKey"));
+                assertEquals("20260907", lossQuery.get("bgnde"));
+                assertEquals("20260914", lossQuery.get("ended"));
+                assertFalse(lossQuery.containsKey("endde"));
             }
         } finally {
             server.stop(0);
         }
+    }
+
+    private static Map<String, String> queryParameters(String query) {
+        return Arrays.stream(query.split("&"))
+                .map(parameter -> parameter.split("=", 2))
+                .collect(Collectors.toMap(
+                        parameter -> URLDecoder.decode(parameter[0], StandardCharsets.UTF_8),
+                        parameter -> URLDecoder.decode(parameter[1], StandardCharsets.UTF_8)));
     }
 }
