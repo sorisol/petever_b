@@ -7,6 +7,7 @@ import com.petever.api.service.*;
 
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
@@ -61,6 +62,76 @@ class AnimalControllerTests {
         var result = new AnimalController(animals, records).detail(8L);
 
         assertEquals(List.of("/api/animals/images/21", "/api/animals/images/22"), result.images());
+    }
+
+    @Test
+    void detailReturnsExactlyTheWhitelistedPublicFieldsWithoutImageUrls() {
+        var animals = mock(AnimalRepository.class);
+        var records = mock(AnimalExternalRecordRepository.class);
+        var animal = new Animal();
+        animal.id = 10L;
+        var record = new AnimalExternalRecord();
+        record.source = AnimalImportService.SOURCE;
+        record.rawPayload = """
+            {"noticeNo":"N","srvcTxt":"S","popfile4":"https://example.org/4.jpg","sprtEDate":"20261030",
+             "desertionNo":"D","rfidCd":"R","happenDt":"20261001","happenPlace":"P","kindCd":"K",
+             "colorCd":"C","age":"A","weight":"W","evntImg":"https://example.org/event.jpg","updTm":"U",
+             "endReason":"E","careRegNo":"CR","noticeSdt":"NS","noticeEdt":"NE",
+             "popfile1":"https://example.org/1.jpg","processState":"PS","sexCd":"F","neuterYn":"Y",
+             "specialMark":"SM","careNm":"CN","careTel":"CT","careAddr":"CA","orgNm":"O","secret":"hidden"}
+            """;
+        when(animals.findByIdAndVisibility(10L, "PUBLIC")).thenReturn(Optional.of(animal));
+        when(records.findByAnimalId(10L)).thenReturn(Optional.of(record));
+
+        var result = new AnimalController(animals, records).detail(10L);
+        var json = new ObjectMapper().writeValueAsString(result);
+
+        assertEquals(27, result.publicData().size());
+        assertEquals("Y", result.publicData().get("popfile1"));
+        assertEquals("Y", result.publicData().get("popfile4"));
+        assertEquals("Y", result.publicData().get("evntImg"));
+        assertFalse(json.contains("https://example.org"));
+        assertFalse(result.publicData().containsKey("secret"));
+    }
+
+    @Test
+    void lostDetailAllowsOnlyPublicSummaryFieldsEvenWhenRawPayloadContainsPrivateData() {
+        var animals = mock(AnimalRepository.class);
+        var records = mock(AnimalExternalRecordRepository.class);
+        var animal = new Animal();
+        animal.id = 11L;
+        var record = new AnimalExternalRecord();
+        record.source = AnimalImportService.LOSS_SOURCE;
+        record.rawPayload = """
+            {"kindCd":"믹스견","colorCd":"흰색","sexCd":"F","age":"2살","happenDt":"20261001","orgNm":"서울시",
+             "happenPlace":"개인 주소","careNm":"신고자","careTel":"010-0000-0000","careAddr":"개인 주소",
+             "callName":"신고자","rfidCd":"private-rfid"}
+            """;
+        when(animals.findByIdAndVisibility(11L, "PUBLIC")).thenReturn(Optional.of(animal));
+        when(records.findByAnimalId(11L)).thenReturn(Optional.of(record));
+
+        var result = new AnimalController(animals, records).detail(11L);
+
+        assertEquals(List.of("kindCd", "colorCd", "sexCd", "age", "happenDt", "orgNm"),
+                result.publicData().keySet().stream().toList());
+        assertFalse(result.publicData().containsKey("happenPlace"));
+        assertFalse(result.publicData().containsKey("careTel"));
+        assertFalse(result.publicData().containsKey("rfidCd"));
+    }
+
+    @Test
+    void malformedPublicPayloadFallsBackToEmptyData() {
+        var animals = mock(AnimalRepository.class);
+        var records = mock(AnimalExternalRecordRepository.class);
+        var animal = new Animal();
+        animal.id = 12L;
+        var record = new AnimalExternalRecord();
+        record.source = AnimalImportService.SOURCE;
+        record.rawPayload = "not-json";
+        when(animals.findByIdAndVisibility(12L, "PUBLIC")).thenReturn(Optional.of(animal));
+        when(records.findByAnimalId(12L)).thenReturn(Optional.of(record));
+
+        assertEquals(0, new AnimalController(animals, records).detail(12L).publicData().size());
     }
 
     @Test

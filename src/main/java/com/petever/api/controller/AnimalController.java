@@ -4,6 +4,8 @@ import com.petever.api.entity.*;
 import com.petever.api.repository.AnimalRepository;
 import com.petever.api.repository.AnimalExternalRecordRepository;
 import com.petever.api.service.AnimalImportService;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -24,16 +26,29 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 @RestController
 @Profile("supabase")
 @RequestMapping("/api/animals")
 public class AnimalController {
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final List<String> ANIMAL_DETAIL_FIELDS = List.of(
+            "noticeNo", "srvcTxt", "popfile4", "sprtEDate", "desertionNo", "rfidCd",
+            "happenDt", "happenPlace", "kindCd", "colorCd", "age", "weight", "evntImg",
+            "updTm", "endReason", "careRegNo", "noticeSdt", "noticeEdt", "popfile1",
+            "processState", "sexCd", "neuterYn", "specialMark", "careNm", "careTel",
+            "careAddr", "orgNm");
+    private static final List<String> LOSS_DETAIL_FIELDS = List.of(
+            "kindCd", "colorCd", "sexCd", "age", "happenDt", "orgNm");
+    private static final Set<String> IMAGE_FIELDS = Set.of("popfile1", "popfile4", "evntImg");
+
     public record Summary(Long id, String name, String species, String breedName, String careStatus, String imageUrl, String listingType) {}
     public record AnimalPage(List<Summary> content, int number, int totalPages, long totalElements) {}
     public record Detail(Long id, String name, String species, String breedName, String sex, String ageDescription,
                   String careStatus, String foundPlace, String description, String shelterName,
-                  String shelterPhone, List<String> images, String listingType) {}
+                  String shelterPhone, List<String> images, String listingType, Map<String, String> publicData) {}
     private final AnimalRepository animals;
     private final AnimalExternalRecordRepository records;
 
@@ -69,13 +84,45 @@ public class AnimalController {
     public Detail detail(@PathVariable Long id) {
         Animal a = animals.findByIdAndVisibility(id, "PUBLIC")
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
-        boolean lost = records.findByAnimalId(id)
-                .map(r -> AnimalImportService.LOSS_SOURCE.equals(r.source)).orElse(false);
+        AnimalExternalRecord record = records.findByAnimalId(id).orElse(null);
+        boolean lost = record != null && AnimalImportService.LOSS_SOURCE.equals(record.source);
         return new Detail(a.id, a.name, a.species, a.breedName, a.sex, a.ageDescription,
                 a.careStatus, a.foundPlace, a.description,
                 a.shelter == null ? null : a.shelter.name, a.shelter == null ? null : a.shelter.phone,
                 a.images.stream().map(AnimalController::imagePath).toList(),
-                lost ? "LOST_REPORT" : "SHELTER_ANIMAL");
+                lost ? "LOST_REPORT" : "SHELTER_ANIMAL", publicData(record));
+    }
+
+    private static Map<String, String> publicData(AnimalExternalRecord record) {
+        if (record == null || record.rawPayload == null || record.rawPayload.isBlank()) return Map.of();
+        List<String> fields;
+        if (AnimalImportService.SOURCE.equals(record.source)) fields = ANIMAL_DETAIL_FIELDS;
+        else if (AnimalImportService.LOSS_SOURCE.equals(record.source)) fields = LOSS_DETAIL_FIELDS;
+        else return Map.of();
+        try {
+            JsonNode root = MAPPER.readTree(record.rawPayload);
+            if (root.isTextual()) root = MAPPER.readTree(root.asText());
+            if (!root.isObject()) return Map.of();
+            Map<String, String> result = new LinkedHashMap<>();
+            for (String field : fields) {
+                JsonNode node = root.path(field);
+                if (!node.isValueNode() || node.isNull()) continue;
+                String value = node.asText().trim();
+                if (value.isEmpty() || "null".equalsIgnoreCase(value)) continue;
+                if (IMAGE_FIELDS.contains(field)) {
+                    if (isHttpUrl(value)) result.put(field, "Y");
+                } else {
+                    result.put(field, value.length() > 2000 ? value.substring(0, 2000) : value);
+                }
+            }
+            return result;
+        } catch (RuntimeException ignored) {
+            return Map.of();
+        }
+    }
+
+    private static boolean isHttpUrl(String value) {
+        return value.startsWith("https://") || value.startsWith("http://");
     }
 
     private static String imagePath(AnimalImage image) {

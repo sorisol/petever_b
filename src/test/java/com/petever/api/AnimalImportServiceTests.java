@@ -12,9 +12,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.List;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
@@ -84,5 +86,29 @@ class AnimalImportServiceTests {
         var animalCaptor = org.mockito.ArgumentCaptor.forClass(Animal.class);
         verify(animals).save(animalCaptor.capture());
         org.junit.jupiter.api.Assertions.assertNull(animalCaptor.getValue().weightKg);
+    }
+
+    @Test
+    void storesAllSupportedPublicImagesInStableOrder() {
+        var images = mock(AnimalImageRepository.class);
+        var importer = new AnimalImportService(mock(ShelterRepository.class), mock(AnimalRepository.class),
+                mock(AnimalExternalRecordRepository.class), images);
+        var item = new ObjectMapper().readTree("""
+            {"desertionNo":"A4","careNm":"보호소","kindCd":"[개] 믹스견",
+             "popfile1":"https://example.org/1.jpg","popfile2":"https://example.org/1.jpg",
+             "popfile3":"https://example.org/3.jpg","popfile4":"https://example.org/4.jpg",
+             "evntImg":"https://example.org/event.jpg"}
+            """);
+
+        assertTrue(importer.importItem(item, "6110000"));
+
+        var captor = org.mockito.ArgumentCaptor.forClass(AnimalImage.class);
+        verify(images, times(4)).save(captor.capture());
+        assertEquals(List.of(
+                "https://example.org/1.jpg", "https://example.org/3.jpg",
+                "https://example.org/4.jpg", "https://example.org/event.jpg"),
+                captor.getAllValues().stream().map(image -> image.url).toList());
+        assertEquals(List.of(0, 1, 2, 3),
+                captor.getAllValues().stream().map(image -> image.sortOrder).toList());
     }
 }
