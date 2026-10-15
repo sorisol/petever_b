@@ -90,10 +90,8 @@ public class AnimalImportService {
         shelter.lastSyncedAt = Instant.now();
         shelters.save(shelter);
 
-        String kind = fallback(text(item, "kindCd"), "");
-        animal.species = kind.startsWith("[개]") ? "DOG" : kind.startsWith("[고양이]") ? "CAT"
-                : kind.startsWith("[") ? "OTHER" : "UNKNOWN";
-        animal.breedName = kind.replaceFirst("^\\[[^]]+\\]\\s*", "");
+        animal.species = shelterSpecies(item);
+        animal.breedName = shelterBreed(item);
         animal.sex = switch (fallback(text(item, "sexCd"), "")) {
             case "M" -> "MALE"; case "F" -> "FEMALE"; default -> "UNKNOWN";
         };
@@ -221,6 +219,36 @@ public class AnimalImportService {
                 || kind.contains("스피츠") || kind.contains("불독")) return "DOG";
         return "UNKNOWN";
     }
+
+    private static String shelterSpecies(JsonNode item) {
+        String code = text(item, "upKindCd");
+        if ("417000".equals(code)) return "DOG";
+        if ("422400".equals(code)) return "CAT";
+        if ("429900".equals(code)) return "OTHER";
+
+        String name = text(item, "upKindNm");
+        if ("개".equals(name)) return "DOG";
+        if ("고양이".equals(name)) return "CAT";
+        if ("기타".equals(name) || "기타축종".equals(name)) return "OTHER";
+
+        String kind = fallback(text(item, "kindFullNm"), fallback(text(item, "kindCd"), ""));
+        if (kind.startsWith("[개]")) return "DOG";
+        if (kind.startsWith("[고양이]")) return "CAT";
+        if (kind.startsWith("[")) return "OTHER";
+        return "UNKNOWN";
+    }
+
+    private static String shelterBreed(JsonNode item) {
+        String name = text(item, "kindNm");
+        if (name == null) name = text(item, "kindFullNm");
+        if (name == null) {
+            name = text(item, "kindCd");
+            if (name == null || name.matches("\\d+")) return null;
+        }
+        name = name.replaceFirst("^\\[[^]]+\\]\\s*", "");
+        return name.isBlank() ? null : name;
+    }
+
     private static String mapStatus(String state) {
         if (state == null) return "UNKNOWN";
         if (state.contains("보호") || state.contains("공고")) return "PROTECTED";

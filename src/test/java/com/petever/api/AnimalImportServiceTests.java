@@ -8,6 +8,7 @@ import com.petever.api.service.*;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -24,6 +25,59 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.ObjectMapper;
 
 class AnimalImportServiceTests {
+    @Test
+    void mapsV2BreedAndSpeciesNamesInsteadOfNumericCodes() {
+        var animals = mock(AnimalRepository.class);
+        var importer = new AnimalImportService(mock(ShelterRepository.class), animals,
+                mock(AnimalExternalRecordRepository.class), mock(AnimalImageRepository.class));
+        var item = new ObjectMapper().readTree("""
+            {"desertionNo":"V2-1","careNm":"보호소","upKindCd":"417000","upKindNm":"개",
+             "kindCd":"000020","kindNm":"보더 콜리","kindFullNm":"[개] 보더 콜리"}
+            """);
+
+        assertTrue(importer.importItem(item, null));
+
+        var animalCaptor = org.mockito.ArgumentCaptor.forClass(Animal.class);
+        verify(animals).save(animalCaptor.capture());
+        assertEquals("DOG", animalCaptor.getValue().species);
+        assertEquals("보더 콜리", animalCaptor.getValue().breedName);
+    }
+
+    @Test
+    void usesFullBreedNameWhenV2ShortNameIsMissing() {
+        var animals = mock(AnimalRepository.class);
+        var importer = new AnimalImportService(mock(ShelterRepository.class), animals,
+                mock(AnimalExternalRecordRepository.class), mock(AnimalImageRepository.class));
+        var item = new ObjectMapper().readTree("""
+            {"desertionNo":"V2-2","careNm":"보호소","upKindCd":"999999",
+             "kindCd":"000200","kindFullNm":"[고양이] 한국 고양이"}
+            """);
+
+        assertTrue(importer.importItem(item, null));
+
+        var animalCaptor = org.mockito.ArgumentCaptor.forClass(Animal.class);
+        verify(animals).save(animalCaptor.capture());
+        assertEquals("CAT", animalCaptor.getValue().species);
+        assertEquals("한국 고양이", animalCaptor.getValue().breedName);
+    }
+
+    @Test
+    void doesNotExposeNumericBreedOrGuessUnknownSpecies() {
+        var animals = mock(AnimalRepository.class);
+        var importer = new AnimalImportService(mock(ShelterRepository.class), animals,
+                mock(AnimalExternalRecordRepository.class), mock(AnimalImageRepository.class));
+        var item = new ObjectMapper().readTree("""
+            {"desertionNo":"V2-3","careNm":"보호소","upKindCd":"999999","kindCd":"000020"}
+            """);
+
+        assertTrue(importer.importItem(item, null));
+
+        var animalCaptor = org.mockito.ArgumentCaptor.forClass(Animal.class);
+        verify(animals).save(animalCaptor.capture());
+        assertEquals("UNKNOWN", animalCaptor.getValue().species);
+        assertNull(animalCaptor.getValue().breedName);
+    }
+
     @Test
     void upsertPreservesLocalFieldsAndImages() {
         var shelters = mock(ShelterRepository.class);
