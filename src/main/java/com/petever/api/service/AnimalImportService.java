@@ -36,6 +36,8 @@ public class AnimalImportService {
     public static final String SOURCE = "ANIMAL_API";
     static final String MISSING_EXTERNAL_ID = "Missing desertionNo";
     public static final String LOSS_SOURCE = "LOSS_INFO";
+    private static final List<String> PUBLIC_IMAGE_FIELDS = List.of(
+            "popfile1", "popfile2", "popfile3", "popfile4", "evntImg");
     private static final String PHOTO_PREFIX = "https://openapi.animal.go.kr/openapi/service/rest/fileDownloadSrvc/files/loss/";
     private final ObjectMapper mapper = new ObjectMapper();
     private final ShelterRepository shelters;
@@ -117,11 +119,11 @@ public class AnimalImportService {
         records.save(record);
 
         List<String> urls = new ArrayList<>();
-        for (String field : List.of("popfile1", "popfile2")) {
+        for (String field : PUBLIC_IMAGE_FIELDS) {
             String url = text(item, field);
             if (url != null && (url.startsWith("https://") || url.startsWith("http://")) && !urls.contains(url)) urls.add(url);
         }
-        if (item.has("popfile1") || item.has("popfile2")) images.deleteByAnimalAndSource(animal, "PUBLIC_API");
+        if (PUBLIC_IMAGE_FIELDS.stream().anyMatch(item::has)) images.deleteByAnimalAndSource(animal, "PUBLIC_API");
         for (int i = 0; i < urls.size(); i++) {
             var image = new AnimalImage();
             image.animal = animal;
