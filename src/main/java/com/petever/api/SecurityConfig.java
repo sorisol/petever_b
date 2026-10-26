@@ -23,13 +23,17 @@ class SecurityConfig {
         http.authorizeHttpRequests(authorize -> authorize
                 .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/animals", "/api/animals/*",
-                        "/api/animals/images/*", "/api/auth/csrf").permitAll()
-                .requestMatchers(HttpMethod.POST, "/api/auth/signup", "/api/auth/login").permitAll()
+                        "/api/animals/images/*", "/api/auth/csrf",
+                        "/api/veterinary-clinics", "/api/veterinary-clinics/regions").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/auth/signup", "/api/auth/login",
+                        "/api/veterinary-clinics/nearby-search").permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated())
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
             .securityContext(security -> security.securityContextRepository(contexts))
-            .csrf(csrf -> csrf.csrfTokenRepository(csrfTokens))
+            .csrf(csrf -> csrf.csrfTokenRepository(csrfTokens)
+                    .ignoringRequestMatchers(request -> "POST".equals(request.getMethod())
+                            && "/api/veterinary-clinics/nearby-search".equals(request.getRequestURI())))
             .exceptionHandling(ex -> ex.authenticationEntryPoint((request, response, error) ->
                     response.sendError(HttpServletResponse.SC_UNAUTHORIZED)));
         return http.build();
