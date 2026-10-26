@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 import java.time.Instant;
+import java.math.BigDecimal;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -45,6 +46,7 @@ class AnimalSchemaTests {
     @Autowired AnimalRepository animals;
     @Autowired AnimalExternalRecordRepository records;
     @Autowired SyncRunRepository runs;
+    @Autowired VeterinaryClinicRepository veterinaryClinics;
 
     @Test
     void persistsAnimalWithNullShelter() {
@@ -158,5 +160,22 @@ class AnimalSchemaTests {
     @Test
     void testContextDoesNotStartLiveAnimalSync() {
         assertEquals(0, runs.count());
+    }
+
+    @Test
+    void veterinaryClinicNumericCoordinatesRoundTrip() {
+        var clinic = new VeterinaryClinic();
+        clinic.externalSource = "LOCALDATA_ANIMAL_HOSPITAL";
+        clinic.externalId = "schema-test";
+        clinic.name = "Schema veterinary clinic";
+        clinic.address = "서울특별시 종로구 길 1";
+        clinic.operatingStatus = "OPEN";
+        clinic.latitude = new BigDecimal("37.5820263");
+        clinic.longitude = new BigDecimal("126.9709518");
+        clinic = veterinaryClinics.saveAndFlush(clinic);
+
+        var saved = veterinaryClinics.findById(clinic.id).orElseThrow();
+        assertEquals(0, new BigDecimal("37.5820263").compareTo(saved.latitude));
+        assertEquals(0, new BigDecimal("126.9709518").compareTo(saved.longitude));
     }
 }

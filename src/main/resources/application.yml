@@ -16,3 +16,9 @@ server:
         http-only: true
         same-site: lax
         secure: ${SESSION_COOKIE_SECURE:false}
+
+petever:
+  vet-clinics:
+    sync:
+      enabled: ${VET_CLINIC_SYNC_ENABLED:false}
+    source-url: ${VET_CLINIC_SOURCE_URL:https://file.localdata.go.kr/file/download/animal_hospitals/info}
