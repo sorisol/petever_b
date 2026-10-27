@@ -8,6 +8,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
@@ -22,6 +23,7 @@ public class VeterinaryClinicSourceClient {
     private final HttpClient http;
     private final VeterinaryClinicCsvParser parser = new VeterinaryClinicCsvParser();
 
+    @Autowired
     public VeterinaryClinicSourceClient(
             @Value("${petever.vet-clinics.sync.enabled:false}") boolean enabled,
             @Value("${petever.vet-clinics.source-url:https://file.localdata.go.kr/file/download/animal_hospitals/info}") String url) {
