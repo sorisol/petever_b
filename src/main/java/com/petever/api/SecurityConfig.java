@@ -33,7 +33,8 @@ class SecurityConfig {
             .securityContext(security -> security.securityContextRepository(contexts))
             .csrf(csrf -> csrf.csrfTokenRepository(csrfTokens)
                     .ignoringRequestMatchers(request -> "POST".equals(request.getMethod())
-                            && "/api/veterinary-clinics/nearby-search".equals(request.getRequestURI())))
+                            && "/api/veterinary-clinics/nearby-search".equals(
+                                    NearbySearchRateLimitFilter.requestPath(request))))
             .exceptionHandling(ex -> ex.authenticationEntryPoint((request, response, error) ->
                     response.sendError(HttpServletResponse.SC_UNAUTHORIZED)));
         return http.build();
