@@ -18,6 +18,7 @@ import com.petever.api.repository.VeterinaryClinicRepository;
 import com.petever.api.service.VeterinaryClinicNearbyService;
 import com.petever.api.service.VeterinaryClinicSyncService;
 import com.petever.api.service.VeterinaryClinicSourceClient.SyncDisabledException;
+import java.net.URI;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -58,6 +59,19 @@ class VeterinaryClinicSecurityTests {
                 .andExpect(status().isOk())
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(jsonPath("$.count").value(0));
+    }
+
+    @Test
+    void encodedNearbyPathNeedsNoCsrf() throws Exception {
+        when(nearby.find(anyDouble(), anyDouble(), anyDouble(), anyInt(), anyString()))
+                .thenReturn(new VeterinaryClinicNearbyService.Result(List.of(), false));
+
+        mvc.perform(post(URI.create("/api/veterinary-clinics/%6Eearby-search"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"lat":37.566,"lng":126.978}
+                                """))
+                .andExpect(status().isOk());
     }
 
     @Test

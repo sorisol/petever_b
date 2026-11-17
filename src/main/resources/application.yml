@@ -10,6 +10,7 @@ spring:
 
 server:
   port: ${SERVER_PORT:8080}
+  forward-headers-strategy: ${SERVER_FORWARD_HEADERS_STRATEGY:NONE}
   servlet:
     session:
       cookie:
@@ -18,6 +19,11 @@ server:
         secure: ${SESSION_COOKIE_SECURE:false}
 
 petever:
+  rate-limit:
+    nearby-search:
+      max-requests: ${NEARBY_RATE_LIMIT_MAX_REQUESTS:30}
+      window-seconds: ${NEARBY_RATE_LIMIT_WINDOW_SECONDS:60}
+      max-keys: ${NEARBY_RATE_LIMIT_MAX_KEYS:10000}
   vet-clinics:
     sync:
       enabled: ${VET_CLINIC_SYNC_ENABLED:false}
